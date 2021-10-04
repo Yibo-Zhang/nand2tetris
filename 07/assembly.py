@@ -34,14 +34,39 @@ class CodeWriter:
         self.codes = codes
         self.input_file = input_file
         self.output_file = self.input_file.split('.')[0]+'.asm'
+        with open(self.output_file, 'w') as f:
+            f.write('')
 
     def __call__(self):
+        simple_list = ['add', 'sub', 'or', 'and', 'not', 'neg']
+        push_pop_list = ['push', 'pop']
+        eq_index = 0
+        gt_index = 0
+        lt_index = 0
         for i in self.codes:
-            print(i)
             if len(i) == 1:
-                self.Constructor(self.output_file, self.writeArithmetic(i[0]))
+                if i[0] in simple_list:
+                    self.Constructor(self.output_file,
+                                     self.writeArithmetic(i[0]))
+                    continue
+                elif i[0] == 'eq':
+                    self.Constructor(self.output_file, self.eq(eq_index))
+                    eq_index += 1
+                    continue
+                elif i[0] == 'gt':
+                    self.Constructor(self.output_file, self.gt(gt_index))
+                    gt_index += 1
+                    continue
+                elif i[0] == 'lt':
+                    self.Constructor(self.output_file, self.lt(lt_index))
+                    lt_index += 1
+                    continue
+
             elif len(i) == 3:
-                self.Constructor(self.output_file, self.WritePushPop(i[0],i[1],i[2]))
+                self.Constructor(self.output_file,
+                                 self.WritePushPop(i[0], i[1], i[2]))
+                continue
+            print('there is a missing line')
 
     def Constructor(self, outputfile, content):
         with open(outputfile, 'a') as f:
@@ -53,7 +78,6 @@ class CodeWriter:
             'sub': 'M=M-D',
             'or': 'M=M|D',
             'and': 'M=M&D',
-            'eq':'M'
         }
         one_operation = {
             'not': 'M=!M',
@@ -63,6 +87,57 @@ class CodeWriter:
             return self.two_operation(two_operation[string])
         elif string in one_operation:
             return self.one_operation(one_operation[string])
+
+    def eq(self, index):
+        output = ''
+        output += '@SP\n'
+        output += 'M=M-1\n'
+        output += 'A=M\n'
+        output += 'D=M\n'
+        output += 'A=A-1\n'
+        output += 'D=M-D\n'
+        output += 'M=-1\n'
+        output += '@eq_'+str(index)+'\n'
+        output += 'D;JEQ\n'
+        output += '@SP\n'
+        output += 'A=M-1\n'
+        output += 'M=0\n'
+        output += '(eq_'+str(index)+')\n'
+        return output
+
+    def gt(self, index):
+        output = ''
+        output += '@SP\n'
+        output += 'M=M-1\n'
+        output += 'A=M\n'
+        output += 'D=M\n'
+        output += 'A=A-1\n'
+        output += 'D=M-D\n'
+        output += 'M=-1\n'
+        output += '@gt_'+str(index)+'\n'
+        output += 'D;JGT\n'
+        output += '@SP\n'
+        output += 'A=M-1\n'
+        output += 'M=0\n'
+        output += '(gt_'+str(index)+')\n'
+        return output
+
+    def lt(self, index):
+        output = ''
+        output += '@SP\n'
+        output += 'M=M-1\n'
+        output += 'A=M\n'
+        output += 'D=M\n'
+        output += 'A=A-1\n'
+        output += 'D=D-M\n'
+        output += 'M=-1\n'
+        output += '@lt_'+str(index)+'\n'
+        output += 'D;JGT\n'
+        output += '@SP\n'
+        output += 'A=M-1\n'
+        output += 'M=0\n'
+        output += '(lt_'+str(index)+')\n'
+        return output
 
     def two_operation(self, string):
         output = ''
@@ -83,8 +158,8 @@ class CodeWriter:
 
     def WritePushPop(self, command, segment: str, index: int):
         output = ''
-        segment_list = ['LCL', 'ARG', 'THIS', 'TAHT']
-
+        segment_list = {'local': 'LCL', 'argument': 'ARG',
+                        'this': 'THIS', 'that': 'THAT'}
         if segment == 'constant':
             # constant only has push command
             output += '@'+str(index)+'\n'
@@ -95,23 +170,111 @@ class CodeWriter:
             output += '@SP\n'
             output += 'M=M+1\n'
         elif segment in segment_list:
+            segment = segment_list[segment]
             if command == 'push':
-                output += '@' + segment + '\n'
-                output += 'A=A+'+str(index)+'\n'
-                output += 'D=M\n'
-                output += '@SP\n'
-                output += 'A=M\n'
-                output += 'M=D\n'
-                output += '@SP\n'
-                output += 'M=M+1\n'
+                output += self.push(segment, index)
+
             elif command == 'pop':
-                output += '@SP\n'
-                output += 'M=M-1\n'
-                output += 'A=M\n'
-                output += 'D=M\n'
-                output += '@' + segment + '\n'
-                output += 'A=A+'+str(index)+'\n'
-                output += 'M=D\n'
+                output += self.pop(segment, index)
+        elif segment == 'temp':
+            temp = str(5)
+            if command == 'push':
+                output += self.push(temp, index)
+            else:
+                output += self.pop(temp, index)
+            print(output)
+        elif segment == 'pointer':
+            if command=='push':
+                output += self.push_pointer(str(index))
+            else:
+                output += self.pop_pointer(str(index))
+        elif segment == 'static': # 16-255
+            if command=='push':
+                output+= self.push_static(index)
+            else:
+                output+=self.pop_static(index)
+
+        return output
+    def push_static(self,index):
+        output = ''
+        output += '@16\n'
+        if int(index)!=0:
+            for i in range(int(index)):
+                output += 'A=A+'+str(1)+'\n'
+        output += 'D=M\n'
+        output += '@SP\n'
+        output += 'A=M\n'
+        output += 'M=D\n'
+        output += '@SP\n'
+        output += 'M=M+1\n' 
+        return output
+    def pop_static(self, index):
+        output = ''
+        output += '@SP\n'
+        output += 'M=M-1\n'
+        output += 'A=M\n'
+        output += 'D=M\n'
+        output += '@16\n'
+        if int(index)!=0:
+            for i in range(int(index)):
+                output += 'A=A+'+str(1)+'\n'
+        output += 'M=D\n'
+        return output   
+    def push_pointer(self,index):
+        output = ''
+        if index == str(0):
+            output += '@THIS\n'
+        else:
+            output += '@THAT\n'
+        output += 'D=M\n'
+        output += '@SP\n'
+        output += 'A=M\n'
+        output += 'M=D\n'
+        output += '@SP\n'
+        output += 'M=M+1\n' 
+        return output   
+    def pop_pointer(self,index):
+        output = ''
+        output += '@SP\n'
+        output += 'M=M-1\n'
+        output += 'A=M\n'
+        output += 'D=M\n'
+        if index == str(0):
+            output += '@THIS\n'
+        else:
+            output += '@THAT\n'
+        output += 'M=D\n'
+        return output    
+
+    def push(self, segment, index):
+        output = ''
+        output += '@' + segment + '\n'
+        if segment != str(5):
+            output += 'A=M\n'
+        if int(index)!=0:
+            for i in range(int(index)):
+                output += 'A=A+'+str(1)+'\n'
+        output += 'D=M\n'
+        output += '@SP\n'
+        output += 'A=M\n'
+        output += 'M=D\n'
+        output += '@SP\n'
+        output += 'M=M+1\n'
+        return output
+
+    def pop(self, segment, index):
+        output = ''
+        output += '@SP\n'
+        output += 'M=M-1\n'
+        output += 'A=M\n'
+        output += 'D=M\n'
+        output += '@' + segment + '\n'
+        if segment != str(5):
+            output += 'A=M\n'
+        if int(index)!=0:
+            for i in range(int(index)):
+                output += 'A=A+'+str(1)+'\n'
+        output += 'M=D\n'
         return output
 
 
@@ -130,4 +293,3 @@ if __name__ == '__main__':
     file_name = sys.argv[1]
     main = main(file_name)
     main()
-
